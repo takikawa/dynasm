@@ -8,5 +8,7 @@
 -- All the interesting stuff is there.
 ------------------------------------------------------------------------------
 
+assert(package.loaded.dasm_x86 == nil) --can't have it both loaded
+
 x64 = true -- Using a global is an ugly, but effective solution.
 return require("dasm_x86")
