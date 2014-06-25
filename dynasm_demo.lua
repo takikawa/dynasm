@@ -4,7 +4,7 @@ io.stderr:setvbuf'no'
 local dynasm = require'dynasm'
 
 --load a file manually
-local chunk = assert(dynasm.loadfile('dynasm_test.dasl'))
+local chunk = assert(dynasm.loadfile('dynasm_demo_x86.dasl'))
 
 --run it twice to test the reusability of the dynasm encoder.
 chunk()
@@ -12,7 +12,7 @@ chunk()
 
 --load the same file as a module, via require()
 --dynasm was already used, so we test the reusability of the dynasm parser.
-require'dynasm_test'
+require'dynasm_demo_x86'
 
 --load and run a minimal program from a string
 local program = [[

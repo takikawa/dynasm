@@ -25,7 +25,7 @@ local m = bit.tobit(0xdeadbeef) --normalize because values passed to dasm_put() 
 |  mov Rd(n), m            // Rd(2) = edx
 |  fld Rf(n)               // Rf(2) = st2
 |  mov eax, [ebx + ecx * 8 + m]         // max. 2G const displacement with this form
-|  mov eax, [m]                         // full 4G const displacement with this form
+|  mov eax, [m]                         // full 4G const address with this form
 | nop
 
 --type macros ------------------------------------------------------------------------------------------------------------
