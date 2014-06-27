@@ -101,8 +101,11 @@ M.growpc = C.dasm_growpc
 M.setup = C.dasm_setup
 
 local int_ct = ffi.typeof'int'
-local function convert_arg(arg) --dasm_put() accepts only int varargs
-	return int_ct(arg)
+local function convert_arg(arg)   --dasm_put() accepts only int32 varargs.
+	if type(arg) == "number" then  --but we make it accept uint32 too by normalizing the arg.
+		arg = bit.tobit(arg)        --non-number args are converted to int32 according to ffi rules.
+	end
+	return ffi.cast(int_ct, arg)
 end
 local function convert_args(...) --not a tailcall but at least it doesn't make any garbage
 	if select('#', ...) == 0 then return end
@@ -115,12 +118,13 @@ end
 function M.link(state, sz)
 	sz = sz or ffi.new'size_t[1]'
 	checkst(C.dasm_link(state, sz))
-	return sz[0]
+	return tonumber(sz[0])
 end
 
 function M.encode(state, buf)
 	checkst(C.dasm_encode(state, buf))
 end
+jit.off(M.encode) --calls the DASM_EXTERN_FUNC callback
 
 M.getpclabel = C.dasm_getpclabel
 
@@ -149,7 +153,9 @@ end
 local extern_names    --t[idx] -> name
 local extern_get      --f(name) -> ptr
 
-C.DASM_EXTERN_FUNC = function(ctx, addr, idx, type) --consume a single callback object
+local byteptr_ct = ffi.typeof'uint8_t*'
+
+local function DASM_EXTERN_FUNC(ctx, addr, idx, type)
 	if not extern_names or not extern_get then
 		err'extern callback not initialized.'
 	end
@@ -158,17 +164,19 @@ C.DASM_EXTERN_FUNC = function(ctx, addr, idx, type) --consume a single callback 
 	if ptr == nil then
 	  err('extern not found: ', name, '.')
 	end
-	ptr = ffi.cast('uint8_t*', ptr)
 	if type ~= 0 then
-		return ffi.cast('int32_t', ptr - addr - 4)
+		return ffi.cast(byteptr_ct, ptr) - addr - 4
 	else
-		return ffi.cast('int32_t', ptr)
+		return ptr
 	end
 end
 
 function M.setupextern(_, names, getter)
 	extern_names = names
 	extern_get = getter or getsym
+	if C.DASM_EXTERN_FUNC == nil then
+		C.DASM_EXTERN_FUNC = DASM_EXTERN_FUNC
+	end
 end
 
 --hi-level API
