@@ -671,7 +671,7 @@ end
 local function immexpr(expr)
   -- &expr (pointer)
   if sub(expr, 1, 1) == "&" then
-    return "iPJ", format(luamode and "ffi.cast(\"ptrdiff_t\", %s)" or "(ptrdiff_t)(%s)", sub(expr,2))
+    return "iPJ", format(luamode and "(%s)" or "(ptrdiff_t)(%s)", sub(expr,2))
   end
 
   local prefix = sub(expr, 1, 2)
@@ -1780,8 +1780,8 @@ if x64 then
     wputop(sz, opcode, rex)
     if vreg then waction("VREG", vreg); wputxb(0) end
     if luamode then
-      waction("IMM_D", format("ffi.cast(\"uint32_t\", %s)", op64))
-      waction("IMM_D", format("ffi.cast(\"uint32_t\", bit.rshift(tonumber(%s), 32))", op64))
+      waction("IMM_D", format("(%s) %% 2^32", op64))
+      waction("IMM_D", format("(%s) / 2^32", op64))
     else
       waction("IMM_D", format("(unsigned int)(%s)", op64))
       waction("IMM_D", format("(unsigned int)((%s)>>32)", op64))
