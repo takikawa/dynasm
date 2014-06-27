@@ -1140,6 +1140,13 @@ local function setlang(infile)
       g_opt.endcomment = ""
     end
   end
+
+  -- Set initial defines only available in Lua mode.
+  local ffi = require'ffi'
+  map_def.ARCH = ffi.arch          --for `.arch ARCH`
+  map_def[upper(ffi.arch)] = 1     --for `.if X86 ...`
+  map_def.OS = ffi.os              --for `.if OS == 'Windows'`
+  map_def[upper(ffi.os)] = 1       --for `.if WINDOWS ...`
 end
 
 -- Parse arguments.
@@ -1210,7 +1217,10 @@ if ... == "dynasm" then -- use as module
   -- which reads data from a string.
   local function string_infile(s)
     local lines = function()
-      local term = match(s, "\r\n") and "\r\n" or match(s, "\r") and "\r" or "\n"
+      local term =
+	match(s, "\r\n") and "\r\n" or
+	match(s, "\r") and "\r" or
+	match(s, "\n") and "\n" or ""
       return gmatch(s, "([^\n\r]*)"..term)
     end
     return {lines = lines, close = dummyclose}
