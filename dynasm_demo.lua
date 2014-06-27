@@ -1,94 +1,91 @@
 io.stdout:setvbuf'no'
 io.stderr:setvbuf'no'
 
-local ffi = require'ffi'
 local dynasm = require'dynasm'
-
---load a file manually
-local chunk = assert(dynasm.loadfile('dynasm_demo_'..ffi.arch..'.dasl'))
-
---run it twice to test the reusability of the dynasm encoder.
-chunk()
-chunk()
-
---load the same file as a module, via require()
---dynasm was already used, so we test the reusability of the dynasm parser.
-require('dynasm_demo_'..ffi.arch)
-
---load and run a minimal program from a string
-local program = [[
-
-local ffi = require'ffi'
 local dasm = require'dasm'
 
-|.arch x64
-|.actionlist actions
+--set the globals returned from the dasl module
 
-local Dst = dasm.new(actions)
-
-|  mov eax, [esp+4]
-|  imul dword [esp+8]
-|  ret
-
-local buf, size = Dst:build()
-
-local func = ffi.cast('int32_t __cdecl (*) (int32_t x, int32_t y)', buf)
-ffi.gc(func, function() local _ = buf end) --stick buf to func
-return func
-
-]]
-
---local chunk = dynasm.loadstring(program)
---local multiply = chunk()
---assert(multiply(-7, 5) == -35)
-
-
---another example showing how code generation and building could be separated.
-local program = [[
-
-local ffi = require'ffi'
-local dasm = require'dasm'
-
-|.arch x64
-|.section code
-|.globals GLOB_
-|.actionlist my_actionlist
-
-ffi.cdef[=[
-typedef struct {
-	int field1;
-	int field2;
-} foo_t;
-]=]
-
-|.type FOO, foo_t, edx
-
-local function gencode(Dst)
-	local i = 0
-  |->start:
-  |  mov esi, [eax+4]
-  |  mov esi, FOO->field2
-  |  mov esi, FOO:ecx->field2
-  for i = 125, 129 do
-    |  add esi, [ebx+i]
-    |  sub esi, [esp+i]
-  end
+local demo, demos, actions, externnames, globalnames, DASM_MAXSECTION, DASM_MAXGLOBAL
+local function set_vars(t)
+	demo, demos, actions, externnames, globalnames, DASM_MAXSECTION, DASM_MAXGLOBAL = unpack(t)
 end
 
-return gencode, my_actionlist
+--load dasl files via loadfile() and via require().
 
-]]
+--load and run the dasl file from the current directory.
+function load_via_loadfile()
+	set_vars(assert(dynasm.loadfile'dynasm_demo_x86.dasl')())
+end
 
-print'-----------------------------------------'
-print(dynasm.translate_tostring(dynasm.string_infile(program), {lang = 'lua'}))
+--load the same file via require() from package.path.
+function load_via_require()
+	set_vars(require'dynasm_demo_x86')
+end
 
-print'-----------------------------------------'
-local chunk = dynasm.loadstring(program)
-local gencode, my_actionlist = chunk()
-local dasm = require'dasm'
-local Dst = dasm.new(my_actionlist)
-gencode(Dst)
-local buf, size = Dst:build()
-dasm.dump(buf, size)
-print''
+--helpers
 
+local function hr() return ('-'):rep(60) end
+local function printf(...) print(string.format(...)) end
+
+--assemble a demo from the dasl file, dump it and run it
+local function run_demo(name)
+	collectgarbage() --clean up from the last session
+
+	local gencode = demo[name]
+
+	--make a new dasm state
+	local state, globals = dasm.new(actions, externnames, DASM_MAXSECTION, DASM_MAXGLOBAL)
+
+	--generate the code and get the test function for that code
+	local runcode = gencode(state)
+
+	--build the code
+	local buf, size = state:build()
+
+	--show code and size
+	printf('%-16s %-10s %s', 'code address', '', tostring(buf))
+	printf('%-16s %-10d %s', 'code size', size, 'bytes')
+
+	--show the labels from this code
+	for i = 0, #globalnames do --from .globalnames directive
+		if globals[i] ~= nil then
+			printf('%-16s %-10s %s', 'global', globalnames[i], globals[i])
+		end
+	end
+
+	--dump the code
+	print(hr())
+	dasm.dump(buf, size)
+
+	--run the code
+	if runcode then
+		runcode(buf)
+	end
+end
+
+--run all demos
+local function run_all_demos()
+	for i,name in ipairs(demos) do
+		print()
+		print(name)
+		print(hr())
+		run_demo(name)
+	end
+end
+
+local function default()
+	load_via_loadfile()
+	run_all_demos()
+	--we're loading the same file again to test the reusability of dynasm.
+	--there's a lot of global state in dynasm which needs to be reset between runs.
+	load_via_require()
+	run_all_demos()
+end
+
+if not ... then
+	default()
+else
+	load_via_require()
+	run_demo((...))
+end
