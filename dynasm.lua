@@ -1270,10 +1270,11 @@ if ... == "dynasm" then -- use as module
 
   -- Register a module loader for *.dasl files.
   insert(package.loaders, function(modname)
-    local path, reason = package.searchpath(modname, gsub(package.path, "%.lua", ".dasl"))
+    local daslpath = gsub(gsub(package.path, "%.lua;", ".dasl;"), "%.lua$", ".dasl")
+    local path, reason = package.searchpath(modname, daslpath)
     if not path then return reason end
     return function()
-      local chunk = dasl_loadfile(path, {lang = "lua", comment = false})
+      local chunk = assert(dasl_loadfile(path, {lang = "lua", comment = false}))
       return chunk(modname)
     end
   end)
