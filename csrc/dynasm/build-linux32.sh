@@ -1,1 +1,1 @@
-gcc -O2 -s -static-libgcc dasm_x86.c -shared -o ../../bin/linux32/libdasm.so -DDASM_CHECKS
+gcc -O2 -s -static-libgcc dasm_x86.c -shared -o ../../bin/linux32/libdasm_x86.so -DDASM_CHECKS
