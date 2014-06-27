@@ -5,7 +5,7 @@
 local ffi = require'ffi'
 local dasm = require'dasm'
 
-|.arch x86
+|.arch x64
 |
 |.actionlist actions
 |.section sec1, sec2
@@ -19,7 +19,7 @@ local Dst, globals = dasm.new(actions, externnames, DASM_MAXSECTION, DASM_MAXGLO
 
 local x, y = 0x33, 0x44
 local n = 2
-local m = bit.tobit(0xdeadbeef) --normalize because values passed to dasm_put() are always signed 32bit integers
+local m = bit.tobit(0xDeadbeef)
 
 |  mov ax, x+y             // 0x77
 |  mov Rd(n), m            // Rd(2) = edx
@@ -49,8 +49,8 @@ local n,m = 1,1
 
 --address substution -----------------------------------------------------------------------------------------------------
 
-local addr = bit.tobit(0xdeadbeef)
-local ptr = ffi.cast("void*", 0xdeadbeef)
+local addr = bit.tobit(0xDeadbeef)
+local ptr = ffi.cast("void*", 0xDeadbeefDeadbeefULL)
 
 |  jmp &addr            // works with normalized numbers
 |  jmp &ptr             // works with pointers too
@@ -84,7 +84,10 @@ local ptr = ffi.cast("void*", 0xdeadbeef)
 |
 |  nop
 
---label substitution -----------------------------------------------------------------------------------------------------
+--label addresses --------------------------------------------------------------------------------------------------------
+
+|->label5:
+|  mov eax, [->label5]
 
 --align and inline data --------------------------------------------------------------------------------------------------
 
@@ -112,11 +115,11 @@ local n = 0x90
 --macros -----------------------------------------------------------------------------------------------------------------
 
 |.macro saveregs
-|  push ebp; push edi; push esi; push ebx
+|  push rbp; push rdi; push rsi; push rbx
 |.endmacro
 |
 |.macro restoreregs
-|  pop ebx; pop esi; pop edi; pop ebp
+|  pop rbx; pop rsi; pop rdi; pop rbp
 |.endmacro
 |
 |.macro cat, s1, s2, s3
@@ -148,8 +151,8 @@ local p2 = ffi.cast('const char*', s2)
 |  push &p2
 |  push &p1
 |  call extern printf
-|  add esp, 8
-|  mov eax, 42
+|  add rsp, 8
+|  mov rax, 42
 |  ret
 
 --building, i.e. checking, linking, mmapping, encoding, mprotecting ------------------------------------------------------
