@@ -14,12 +14,12 @@ end
 --load dasl files via loadfile() and via require().
 
 --load and run the dasl file from the current directory.
-function load_via_loadfile()
+local function load_via_loadfile()
 	set_vars(assert(dynasm.loadfile'dynasm_demo_x86.dasl')())
 end
 
 --load the same file via require() from package.path.
-function load_via_require()
+local function load_via_require()
 	set_vars(require'dynasm_demo_x86')
 end
 
@@ -74,17 +74,58 @@ local function run_all_demos()
 	end
 end
 
-local function default()
+local function test_loadstring()
+	local chunk = dynasm.loadstring[[
+
+local ffi = require'ffi'
+local dasm = require'dasm'
+
+|.arch ARCH
+|.actionlist actions
+
+local function gen()
+	|  mov ax, bx
+end
+
+return actions
+]]
+	local ffi = require'ffi'
+	local actions = chunk()
+	print()
+	print('loadstring test: actionlist for `mov ax, bx`:')
+	print(hr())
+	print(string.byte(ffi.string(actions, ffi.sizeof(actions)), 1, ffi.sizeof(actions)))
+end
+
+local function test_translate_tostring()
+	print()
+	print'translate_tostring test:'
+	print(hr())
+	local asm = [[
+
+local ffi = require'ffi'
+local dasm = require'dasm'
+
+|.arch ARCH
+
+]]
+	print(dynasm.translate_tostring(dynasm.string_infile(asm), {lang = "lua"}))
+end
+
+local function run_default()
 	load_via_loadfile()
 	run_all_demos()
 	--we're loading the same file again to test the reusability of dynasm.
 	--there's a lot of global state in dynasm which needs to be reset between runs.
 	load_via_require()
 	run_all_demos()
+	--additional tests...
+	test_loadstring()
+	test_translate_tostring()
 end
 
 if not ... then
-	default()
+	run_default()
 else
 	load_via_require()
 	run_demo((...))
