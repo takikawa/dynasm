@@ -1,4 +1,5 @@
---wrappers around mmap to support dynamic code exection (Cosmin Apreutesei, public domain)
+--wrappers around mmap to support dynamic code exection (Cosmin Apreutesei, public domain).
+--tested with Windows, Linux and OSX, x86 and x86-64.
 local ffi = require'ffi'
 local C = ffi.C
 
@@ -38,8 +39,14 @@ if ffi.os == 'Windows' then
 
 elseif ffi.os == 'Linux' or ffi.os == 'OSX' then
 
+	if ffi.os == 'OSX' then
+		ffi.cdef'typedef int64_t off_t;'
+	else
+		ffi.cdef'typedef long int off_t;'
+	end
+
 	ffi.cdef[[
-	void* mmap(void *addr, size_t length, int prot, int flags, int fd, long int offset);
+	void* mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 	int munmap(void *addr, size_t length);
 	int mprotect(void *addr, size_t len, int prot);
 	]]
@@ -48,10 +55,14 @@ elseif ffi.os == 'Linux' or ffi.os == 'OSX' then
 	local PROT_WRITE = 2
 	local PROT_EXEC  = 4
 	local MAP_PRIVATE   = 2
-	local MAP_ANONYMOUS = 0x20
+	local MAP_ANON = ffi.os == 'Linux' and 0x20 or 0x1000
 
 	function new(size)
-		return checkh(C.mmap(nil, size, bit.bor(PROT_READ, PROT_WRITE), bit.bor(MAP_PRIVATE, MAP_ANONYMOUS), -1, 0))
+		local ret = C.mmap(nil, size, bit.bor(PROT_READ, PROT_WRITE), bit.bor(MAP_PRIVATE, MAP_ANON), -1, 0)
+		if ffi.cast('intptr_t', ret) == ffi.cast('intptr_t', -1) then
+			error(string.format('mmap errno: %d', ffi.errno()))
+		end
+		return checkh(ret)
 	end
 
 	function protect(addr, size)
