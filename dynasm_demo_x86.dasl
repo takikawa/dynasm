@@ -181,26 +181,33 @@ function demo.extern(Dst)
 	local s1, s2 = 'Hello from %s!\n', 'DynASM'
 	local p1 = ffi.cast('const char*', s1) -- with `const` we can take addr. of a Lua string without making a copy!
 	local p2 = ffi.cast('const char*', s2)
-   ffi.cdef'void printf(...)' --we need this to get printf's address
+	if ffi.arch == 'x64' then
+		ffi.cdef'void printf(...)' --we need this to get printf's address
+	end
 
-	|.if X86                   // ptr args in stack in reverse order
+	|.if X86                       // ptr args in stack in reverse order
+	|  sub esp, 4                  // OSX needs the stack aligned to 16 bytes even on 32bit, go figure
 	|  push &p2
 	|  push &p1
 	|  call extern printf
-   |  add esp, 8              // pop args
+   |  add esp, 8                  // pop args
+	|  add esp, 4                  // dealign
 	|  ret
-	|.elif WINDOWS             // ptr args in rcx, rdx, ...
-	|  sub rsp, 32             // allocate shadow space for printf
+	|.elif WINDOWS                 // ptr args in rcx, rdx, ...
+	|  sub rsp, 32                 // allocate shadow space for printf
 	|  mov64 rcx, p1
 	|  mov64 rdx, p2
-	|  mov64 rax, ffi.C.printf
+	|  mov64 rax, ffi.C.printf     // extern doesn't work on x64
 	|  call rax
-	|  add rsp, 32             // put it back
+	|  add rsp, 32                 // put it back
 	|  ret
-	|.else                     // ptr args in rdi, rsi, ...
+	|.else                         // ptr args in rdi, rsi, ...
+	|  sub rsp, 8                  // align the stack for OSX
 	|  mov rdi, &p1
 	|  mov rsi, &p2
-	|  call extern printf
+	|  mov64 rdx, ffi.C.printf     // extern doesn't work on x64
+	|  call rdx
+	|  add rsp, 8
 	|  ret
 	|.endif
 
@@ -213,15 +220,15 @@ end
 
 function demo.multiply(Dst)
 
-	|.if X86                   // int args in stack in reverse order; int ret in eax
+	|.if X86                       // int args in stack in reverse order; int ret in eax
 	|  mov eax, [esp+4]
 	|  imul dword [esp+8]
 	|  ret
-	|.elif WINDOWS             // int args in rcx, rdx, ...; int ret in rax
+	|.elif WINDOWS                 // int args in rcx, rdx, ...; int ret in rax
 	|  mov rax, rcx
 	|  imul rdx
 	|  ret
-	|.else                     // int args in rdi, rsi, ...; int ret in rax
+	|.else                         // int args in rdi, rsi, ...; int ret in rax
 	|  mov rax, rdi
 	|  imul rsi
 	|  ret
