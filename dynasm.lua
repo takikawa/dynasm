@@ -921,6 +921,9 @@ local function doline(line)
 
   -- Strip assembler comments.
   aline = gsub(aline, "//.*$", "")
+  if g_opt.lang == "lua" then
+    aline = gsub(aline, "%-%-.*$", "")
+  end
 
   -- Split line into statements at semicolons.
   if match(aline, ";") then
