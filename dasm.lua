@@ -212,6 +212,18 @@ function M.dump(addr, size, out)
 	disass(ffi.string(addr, size), tonumber(ffi.cast('uintptr_t', addr)), out)
 end
 
+--given the globals array from dasm.new() and the globalnames list
+--from the `.globalnames` directive, return a map {global_name -> global_addr}.
+function M.globals(globals, globalnames)
+	local t = {}
+	for i = 0, #globalnames do
+		if globals[i] ~= nil then
+			t[globalnames[i]] = globals[i]
+		end
+	end
+	return t
+end
+
 --object interface
 
 ffi.metatype('dasm_State_Ref', {__index = {
