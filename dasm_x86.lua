@@ -1780,8 +1780,8 @@ if x64 then
     wputop(sz, opcode, rex)
     if vreg then waction("VREG", vreg); wputxb(0) end
     if luamode then
-      waction("IMM_D", format("(%s) %% 2^32", op64))
-      waction("IMM_D", format("(%s) / 2^32", op64))
+      waction("IMM_D", format("ffi.cast(\"uintptr_t\", %s) %% 2^32", op64))
+      waction("IMM_D", format("ffi.cast(\"uintptr_t\", %s) / 2^32", op64))
     else
       waction("IMM_D", format("(unsigned int)(%s)", op64))
       waction("IMM_D", format("(unsigned int)((%s)>>32)", op64))
@@ -1938,10 +1938,14 @@ map_op[".type_3"] = function(params, nparams)
   local ctypefmt
   if luamode then
     ctypefmt = function(tailr)
-      local index, field = match(tailr, "^(%b[])(.*)$")
+      local index, field
+      index, field = match(tailr, "^(%b[])(.*)")
       index = index and sub(index, 2, -2)
-      field = gsub(gsub(field or tailr, "^%->", ""), "^%.", "")
-      if field == "" then field = nil end
+      field = field or tailr
+      field = match(field, "^%->(.*)") or match(field, "^%.(.*)")
+      if not (index or field) then
+	werror("invalid syntax `"..tailr.."`")
+      end
       local Da = index and format("Da%X(%s)", num, index)
       local Dt = field and format("Dt%X(\"%s\")", num, field)
       return Da and Dt and Da.."+"..Dt or Da or Dt
