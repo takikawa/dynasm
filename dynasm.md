@@ -5,10 +5,16 @@ tagline: DynASM with Lua mode
 
 ## `local dynasm = require'dynasm'`
 
-This is a [modified] version of [DynASM](http://luajit.org/dynasm.html) that allows generating, compiling, and running
-x86 and x86-64 assembly code directly from Lua. It also exposes the DynASM translator and linker to be used as Lua modules.
+Jump To: [Features](#features) | [Examples](#examples) | [DynASM API](#dynasm-api) |
+	[DASM API](#dasm-api) | [Changes to DynASM](#changes-to-dynasm) | [DynASM Reference](#dynasm-reference-tutorials)
 
-> If you want to learn more about DynASM, look [below](#dynasm-reference-tutorials) for some fine material.
+
+This is a modified version of [DynASM](http://luajit.org/dynasm.html) that allows generating,
+compiling, and running x86 and x86-64 assembly code directly from Lua. It also exposes the DynASM translator
+and linker to be used as Lua modules.
+
+> If you want to learn more about DynASM, look [below](#dynasm-reference-tutorials) for some fine learning material. \
+> If you want to know how this differs from the original DynASM, look [below](#changes-to-dynasm) for the list of changes.
 
 ## Features
 
@@ -16,53 +22,56 @@ x86 and x86-64 assembly code directly from Lua. It also exposes the DynASM trans
   * load Lua/ASM (.dasl) files with `require()`
   * translate from file/string/stream inputs to file/string/stream outputs
 
-## Before you start
+## Examples
 
-  * the `dynasm` module is the dynasm translator and it's written in Lua.
-  * the `dasm` module is the encoder/linker and it's a binding to the C part of DynASM.
+Before you start:
+
+  * `dynasm.lua` is the Lua part of dynasm (the translator).
+  * `dasm.lua` is the binding to the C part of DynASM (the linker/encoder).
   * `.dasl` files refer to Lua/ASM files, `.dasc` files refer to Lua/C files.
 
-## Changes made to DynASM
+Ok, let's see some samples.
 
-The
+### 1. Self-contained module:
 
-  * `-l, --lang C|Lua` option was added to the command-line interface.
-
-## DynASM + Lua HOWTO
-
-### Load and run a program from a string:
+#### `multiply_x86.dasl:`
 
 ~~~{.lua}
-local dynasm = require'dynasm'         --load the translator
-
-local program = [[
-local ffi = require'ffi'               --load the ffi as `ffi`: the generated code references it
-local dasm = require'dasm'             --load the linker/encoder as `dasm`: the generated code references it
+local ffi = require'ffi'               --required
+local dasm = require'dasm'             --required
 
 |.arch x86                             --must be the first instruction
-|.actionlist actions                   --make an action list for emmitting code
+|.actionlist actions                   --make an action list called `actions`
 
-local Dst, globals = dasm.new(actions) --create a new dynasm state using actions per `.actionlist` directive
+local Dst = dasm.new(actions)          --make a dasm state; next chunk will generate `dasm.put(Dst, ...)`
 
-|->main:
 |  mov eax, [esp+4]
 |  imul dword [esp+8]
 |  ret
 
-local buf, size = Dst:build()          --check, link and encode the code
-local main = globals[0]                --`main` is the first and only global label, here the same as `buf`
-local func = ffi.cast('int32_t __cdecl (*) (int32_t x, int32_t y)', main) --get a callable pointer to it
-return buf, size, func                 --return the code, its size and the callable pointer
-]]
+local code = Dst:build()               --check, link and encode the code
+local fptr = ffi.cast('int32_t __cdecl (*) (int32_t x, int32_t y)', code) --take a callable pointer to it
 
-local chunk = dynasm.loadstring(program)  --like Lua's loadstring()
-local code, codesize, multiply = chunk()  --run the Lua chunk
-assert(multiply(-7, 5) == -35)            --call into the built program
+return function(x, y)
+	local _ = code                      --pin the code buffer so it doesn't get collected
+	return fptr(x, y)
+end
 ~~~
 
-### Load and run the same program from a file:
+#### `main.lua`:
 
-#### `multiply.dasl:`
+~~~{.lua}
+require'dynasm'                           --hook in the `require` loader for .dasl files
+local multiply = require'multiply_x86'    --load, translate and run `multiply_x86.dasl`
+assert(multiply(-7, 5) == -35)
+~~~
+
+### 2. Code gen / build split:
+
+Here's an idea on how you can keep your asm code separated from the plumbing required to build it,
+and also how you can make separate functions out of different asm chunks from the same dasl file.
+
+#### `funcs_x86.dasl`:
 
 ~~~{.lua}
 local ffi = require'ffi'
@@ -70,49 +79,110 @@ local dasm = require'dasm'
 
 |.arch x86
 |.actionlist actions
+|.globalnames globalnames
 
-local Dst = dasm.new(actions)
+local gen = {}
 
-|  mov eax, [esp+4]
-|  imul dword [esp+8]
-|  ret
+function gen.mul(Dst)                  --function which generates code into the dynasm state called `Dst`
+   |->mul:                             --and returns a "make" function which gets a dasm.globals() map
+   |  mov eax, [esp+4]                 --and returns a function that knows how to call into its code.
+   |  imul dword [esp+8]
+   |  ret
+   return function(globals)
+     return ffi.cast('int32_t __cdecl (*) (int32_t x, int32_t y)', globals.mul)
+   end
+end
 
-local buf, size = Dst:build()
-local func = ffi.cast('int32_t __cdecl (*) (int32_t x, int32_t y)', buf)
-return {call = func, code = buf, codesize = size}
+function gen.add(Dst)
+   |->add:
+   |  mov eax, [esp+4]
+   |  add eax, dword [esp+8]
+   |  ret
+   return function(globals)
+     return ffi.cast('int32_t __cdecl (*) (int32_t x, int32_t y)', globals.add)
+   end
+end
+
+return {gen = gen, actions = actions, globalnames = globalnames}
+]]
 ~~~
 
-#### `main.lua`:
+#### `funcs.lua`:
 
 ~~~{.lua}
-require'dynasm'                           --register the `require` loader for .dasl files
-local multiply = require'multiply'        --load, translate and run `multiply.dasl`
-assert(multiply.call(-7, 5) == -35)       --call into the built program
+local dynasm = require'dynasm'
+local dasm   = require'dasm'
+local funcs  = require'funcs_x86'
+
+local state, globals = dasm.new(funcs.actions)     --create a dynasm state with the generated action list
+
+local M = {}                                       --generate the code, collecting the make functions
+for name, gen in pairs(funcs.gen) do
+   M[name] = gen(state)
+end
+
+local buf, size = state:build()                    --check, link and encode the code
+local globals = dasm.globals(globals, funcs.globalnames)   --get the map of global_name -> global_addr
+
+for name, make in pairs(M) do                      --make the callable functions
+   M[name] = make(globals)
+end
+
+M.__buf = buf                                      --pin buf so it doesn't get collected
+
+return M
 ~~~
 
-### Translate to stdout from Lua:
+#### `main.lua`
 
 ~~~{.lua}
-local require'dynasm'
-print(dynasm.translate_tostring'multiply.dasl')
+local funcs = require'funcs'
+
+assert(funcs.mul(-7, 5) == -35)
+assert(funcs.add(-7, 5) == -2)
 ~~~
 
-### Translate to stdout from the command-line:
+### 3. Translate to stdout from Lua:
 
-	luajit dynasm.lua multiply.dasl
+~~~{.lua}
+local dynasm = require'dynasm'
+print(dynasm.translate_tostring'multiply_x86.dasl')
+~~~
 
-## Gotchas and Limitations
+The above is equivalent to the command line
 
-1. All dynamic values are sent to the linker/encoder as int32 values, which means that uint32
-values need to be normalized to int32 using `bit.tobit()`.
+	> lua dynasm.lua multilpy_x86.dasl
 
-2. Once you called `.arch` with some value, you can't call `.arch` again with a different value,
-not even on separate invocations of the translator.
+### 4. Load from string:
+
+~~~{.lua}
+local dynasm = require'dynasm'
+
+local gencode, actions = dynasm.loadstring([[
+local ffi  = require'ffi'
+local dasm = require'dasm'
+
+|.arch x86
+|.actionlist actions
+
+local function gencode(Dst)
+	|  mov ax, bx
+end
+
+return gencode, actions
+]])()
+~~~
+
+### 5. Included demo/tutorial
+
+Check out the included [dynasm_demo_x86.dasl] and [dynasm_demo.lua] files for more in-depth knowledge
+about DynASM/Lua interaction.
+
+[dynasm_demo.lua]:      https://github.com/luapower/dynasm/blob/master/dynasm_demo.lua
+[dynasm_demo_x86.dasl]: https://github.com/luapower/dynasm/blob/master/dynasm_demo_x86.dasl
 
 
-## DynASM (aka translator) API
-
-## `local dynasm = require'dynasm'`
+## DynASM API
 
 ----------------------------------------------------- --------------------------------------------------
 __hi-level__
@@ -123,7 +193,7 @@ dynasm.loadstring(s[, opt]) -> chunk						load a dasl string and return it as a 
 
 __low-level__
 
-dynasm.translate(infile, outfile[, opt])					ranslate a dasc or dasl file
+dynasm.translate(infile, outfile[, opt])					translate a dasc or dasl file
 
 dynasm.string_infile(s) -> infile							use a string as an infile to translate()
 
@@ -136,43 +206,60 @@ dynasm.translate_tostring(infile[, opt]) -> s			translate to a string
 dynasm.translate_toiter(infile[, opt]) -> iter() -> s	translate to an iterator of string pieces
 ----------------------------------------------------- --------------------------------------------------
 
-## DASM (aka linker/encoder) API
 
-## `local dasm = require'dasm'`
+## DASM API
 
 ----------------------------------------------------- --------------------------------------------------
 __hi-level__
 
-dasm.new(actionlist, [externnames], \						make a dasm state to be used as `Dst`
-   [sectioncount], [globalcount], [externget], \
-	[globals]) -> state, globals
+dasm.new(\                                            make a dasm state for an action list. \
+	actionlist, \                                      -> per `.actionlist` directive. \
+	[externnames], \												-> per `.externnames` directive. \
+   [sectioncount], \												-> DASM_MAXSECTION from `.sections` directive. \
+ 	[globalcount],	\												-> DASM_MAXGLOBAL from `.globals` directive. \
+	[externget], \													-> `func(externname) -> addr`, for solving `extern`s \
+	[globals]) -> state, globals								-> `void*[DASM_MAXGLOBAL]`, to hold globals
 
-local buf, size = state:build()								check, link and encode the code
+local buf, size = state:build()								check, link, alloc, encode and mprotect the code
 
 __low-level__
 
-state:init()
+state:init(maxsection)											init a state
 
-state:free()
+state:free()														free the state
 
-state:setupglobal()
+state:setupglobal(globals, globalcount)					set up the globals buffer
 
-state:growpc()
+state:growpc(maxpc)												grow the number of available pc labels
 
-state:setup()
+state:setup(actionlist)											set up the state with an action list
 
 state:put(state, ...)											the translator generates these calls
 
-state:link() -> size												link the code
+state:link() -> size												link the code and get its size
 
-state:encode()
+state:encode(buf)													encode the code into a buffer
 
-state:getpclabel()
+state:getpclabel(pclabel)										get pc label offset
 
-state:checkstep()
+state:checkstep(secmatch)										check code before encoding
 
-state:setupextern()
+state:setupextern(externnames, getter)						set up a new `extern` handler
 ----------------------------------------------------- --------------------------------------------------
+
+
+## Changes to DynASM
+
+The [source code changes] made to DynASM were kept to a minimum to preserve DynASM semantics,
+and to make it easy to add the Lua mode to other architectures supported by DynASM.
+As for the user-facing changes, the list is again small:
+
+  * added `-l, --lang C|Lua` command line option (set automatically for dasl and dasc files).
+  * comments in asm lines can start with both `--` and `//` in Lua mode.
+  * defines ARCH, OS, X86, X64, WINDOWS, LINUX, OSX are predefined in Lua mode.
+  * the `.globals` directive also generates DASM_MAXGLOBAL.
+
+[source code changes]: https://github.com/luapower/dynasm/compare/7d7e130...master
 
 
 ## DynASM Reference & Tutorials
@@ -184,6 +271,4 @@ Peter Cawley > [Intro](http://corsix.github.io/dynasm-doc/index.html),
 Josh Haberman > [Tutorial](http://blog.reverberate.org/2012/12/hello-jit-world-joy-of-simple-jits.html) \
 Mike Pall > [Intro](http://luajit.org/dynasm.html), [Features](http://luajit.org/dynasm_features.html),
 [Examples](http://luajit.org/dynasm_examples.html)
-
-[modified]: https://github.com/luapower/dynasm/commit/7b00676a717eaf1199c5acc69698b0259ec5c7b6
 
