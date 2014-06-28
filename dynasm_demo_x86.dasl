@@ -42,18 +42,21 @@ function demo.immediate_subst(Dst) --immediate value substitution
 	|.if X86
 	|  mov eax, [0+0xffffffff]                // this mov form allows 0..4G expressions.
 	|.else
-	|  mov64 eax, [0xdeadbeefdeadbeefULL]     // this mov form allows full 64bit expressions (they're never literals).
+	|  mov eax, [0+0x7fffffff]                // this mov form allows only 0..2G literals and you won't get an error!
+	|  mov64 eax, [0+0xdeadbeefdeadbeefULL]   // mov64 allows full 64bit expressions (they're never literals).
+	|  mov64 rax, 0+0xdeadbeefdeadbeefULL     // mov64 allows full 64bit expressions (they're never literals).
 	|.endif
 end
 
-function demo.addr_subst(Dst) --address substution
-	local addr = 0xdeadbeef
+function demo.addr(Dst) --address substution for jump targets
+	local addr = ffi.arch == 'x86' and 0xdeadbeef or 0xdeadbeefdeadbeefULL
 	local ptr = ffi.cast("void*", addr)
 	|.if X86
 	|  jmp &addr                              // works with numbers
 	|  jmp &ptr                               // works with pointers too
 	|.else
-	|  nop												// the `&` operator is not supported on x64
+	|  mov64 rax, addr								// no `&` on x64 but you can load an address with `mov64`
+	|  mov64 rax, ptr									// works with pointers too
 	|.endif
 end
 
@@ -62,7 +65,7 @@ function demo.var_reg(Dst) --variable register numbers
 	|  fld Rf(2)                              // Rf(2) = st2. this is always encoding-time.
 end
 
-function demo.type_subst(Dst) --type macros
+function demo.types(Dst) --type macros
 
 	if not rawget(_G, '__TYPEDEFS') then
 		rawset(_G, '__TYPEDEFS', true)
@@ -75,10 +78,13 @@ function demo.type_subst(Dst) --type macros
 	|.type TP1, Type1, eax
 	|.type TP2, Type2, ebx
 	|
+	|  mov eax, TP1:ebx                       // +0
+	|  mov ebx, TP1                           // +0
 	|  mov eax, TP1->f1                       // +0
 	|  mov ebx, TP1.f2                        // +4
 	|  mov ecx, TP2[n+m]->f1                  // +16
 	|  mov edx, TP2[n-2*m].f2                 // -4
+	|  mov edx, TP2:ecx[n-2*m].f2             // -4
 end
 
 function demo.code_sections(Dst)
@@ -175,30 +181,21 @@ function demo.extern(Dst)
 	local s1, s2 = 'Hello from %s!\n', 'DynASM'
 	local p1 = ffi.cast('const char*', s1) -- with `const` we can take addr. of a Lua string without making a copy!
 	local p2 = ffi.cast('const char*', s2)
-   ffi.cdef'void printf(...)'
-	local printf = ffi.cast('uintptr_t', ffi.C.printf)
-	print(ffi.C.printf)
+   ffi.cdef'void printf(...)' --we need this to get printf's address
 
 	|.if X86                   // ptr args in stack in reverse order
 	|  push &p2
 	|  push &p1
 	|  call extern printf
-	|  add esp, 8              // pop args
-	|  ret
-	|.elif WINDOWS1             // ptr args in rcx, rdx, ...
-	|  add rsp, -32
-	|  mov rcx, &p1
-	|  mov rdx, &p2
-	|  mov64 rax, [printf]
-	|  call rax
-	|  add rsp, 32
+   |  add esp, 8              // pop args
 	|  ret
 	|.elif WINDOWS             // ptr args in rcx, rdx, ...
-	|  add rsp, -32
-	|  mov rcx, &p1
-	|  mov rdx, &p2
-	|  call extern printf
-	|  add rsp, 32
+	|  sub rsp, 32             // allocate shadow space for printf
+	|  mov64 rcx, p1
+	|  mov64 rdx, p2
+	|  mov64 rax, ffi.C.printf
+	|  call rax
+	|  add rsp, 32             // put it back
 	|  ret
 	|.else                     // ptr args in rdi, rsi, ...
 	|  mov rdi, &p1
