@@ -1284,7 +1284,7 @@ if ... == "dynasm" then -- use as module
     local path, reason = package.searchpath(modname, daslpath)
     if not path then return reason end
     return function()
-      local chunk = assert(dasl_loadfile(path, {lang = "lua", comment = false}))
+      local chunk = assert(dasl_loadfile(path, {comment = false}))
       return chunk(modname)
     end
   end)
